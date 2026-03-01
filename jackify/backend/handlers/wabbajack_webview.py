@@ -11,6 +11,22 @@ logger = logging.getLogger(__name__)
 
 class WabbajackWebViewMixin:
     """Mixin providing WebView installation methods."""
+    WEBVIEW_INSTALLER_URLS = (
+        "https://files.omnigaming.org/MicrosoftEdgeWebView2RuntimeInstallerX64-WabbajackProton.exe",
+        "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+        "https://node10.sokloud.com/filebrowser/api/public/dl/yqVTbUT8/rwatch/WebView/MicrosoftEdgeWebView2RuntimeInstallerX64-WabbajackProton.exe",
+    )
+
+    @staticmethod
+    def _is_valid_windows_executable(file_path: Path) -> bool:
+        """Return True when file looks like a real Windows PE executable."""
+        if not file_path.exists() or file_path.stat().st_size < 100 * 1024:
+            return False
+        try:
+            with open(file_path, 'rb') as f:
+                return f.read(2) == b"MZ"
+        except Exception:
+            return False
 
     def _install_webview(self) -> bool:
         """Installs the WebView2 runtime using protontricks-launch."""
@@ -78,7 +94,6 @@ class WabbajackWebViewMixin:
             self.logger.error("Cannot download WebView installer: install_path is not set.")
             return False
 
-        url = "https://node10.sokloud.com/filebrowser/api/public/dl/yqVTbUT8/rwatch/WebView/MicrosoftEdgeWebView2RuntimeInstallerX64-WabbajackProton.exe"
         file_name = "MicrosoftEdgeWebView2RuntimeInstallerX64-WabbajackProton.exe"
         destination = self.install_path / file_name
 
@@ -91,11 +106,23 @@ class WabbajackWebViewMixin:
         self.logger.info(f"WebView installer not found locally. Downloading {file_name}...")
         show_status("Downloading WebView Installer")
 
-        if self._download_file(url, destination):
-            return True
-        else:
-            self.logger.error(f"Failed to download WebView installer from {url}.")
-            return False
+        for url in self.WEBVIEW_INSTALLER_URLS:
+            self.logger.info(f"Attempting WebView installer download from {url}")
+            if not self._download_file(url, destination):
+                continue
+
+            if self._is_valid_windows_executable(destination):
+                self.logger.info(f"Downloaded valid WebView installer from {url}")
+                return True
+
+            self.logger.warning(f"Downloaded invalid file from {url}; trying next source.")
+            try:
+                destination.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        self.logger.error("Failed to download a valid WebView installer from all sources.")
+        return False
 
     def _set_prefix_renderer(self, renderer: str = 'vulkan') -> bool:
         """Sets the prefix renderer using protontricks."""

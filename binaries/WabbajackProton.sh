@@ -39,6 +39,7 @@ done
 # URLs for resources
 WABBALIST_URL="https://raw.githubusercontent.com/wabbajack-tools/mod-lists/master/README.md"
 WEBVIEW_INSTALLER_URL="https://files.omnigaming.org/MicrosoftEdgeWebView2RuntimeInstallerX64-WabbajackProton.exe"
+WEBVIEW_INSTALLER_URL_FALLBACK="https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 SYSTEM_REG_URL="https://github.com/Omni-guides/Wabbajack-Modlist-Linux/raw/refs/heads/main/files/system.reg.github"
 USER_REG_URL="https://github.com/Omni-guides/Wabbajack-Modlist-Linux/raw/refs/heads/main/files/user.reg.github"
 
@@ -183,6 +184,33 @@ download_file() {
     else
         error_exit "Neither wget nor curl is available. Cannot download $description"
     fi
+}
+
+download_file_try() {
+    local url="$1"
+    local output_path="$2"
+
+    if command -v wget &>/dev/null; then
+        wget "$url" -O "$output_path" >>"$LOGFILE" 2>&1
+        return $?
+    elif command -v curl &>/dev/null; then
+        curl -sLo "$output_path" "$url" >>"$LOGFILE" 2>&1
+        return $?
+    fi
+    return 1
+}
+
+is_valid_windows_exe() {
+    local file_path="$1"
+    # Require a non-trivial file size to avoid HTML error pages.
+    if [ ! -f "$file_path" ] || [ "$(stat -c%s "$file_path" 2>/dev/null)" -lt 102400 ]; then
+        return 1
+    fi
+
+    # Check DOS/PE signature ("MZ")
+    local sig
+    sig=$(head -c 2 "$file_path" 2>/dev/null)
+    [ "$sig" = "MZ" ]
 }
 
 display_banner() {
@@ -593,7 +621,22 @@ webview_installer() {
     local installer_path="$APPLICATION_DIRECTORY/MicrosoftEdgeWebView2RuntimeInstallerX64-WabbajackProton.exe"
     # Download if not present
     if [ ! -f "$installer_path" ]; then
-        download_file "$WEBVIEW_INSTALLER_URL" "$installer_path" "WebView Installer"
+        local webview_urls=("$WEBVIEW_INSTALLER_URL" "$WEBVIEW_INSTALLER_URL_FALLBACK")
+        local download_ok=0
+        for url in "${webview_urls[@]}"; do
+            log "Attempting WebView installer download from: $url"
+            if download_file_try "$url" "$installer_path" && is_valid_windows_exe "$installer_path"; then
+                log "Downloaded valid WebView installer from: $url"
+                download_ok=1
+                break
+            fi
+            rm -f "$installer_path"
+            log "WebView installer download failed or invalid from: $url"
+        done
+
+        if [ "$download_ok" -ne 1 ]; then
+            error_exit "Failed to download a valid WebView installer from all sources"
+        fi
     else
         log "WebView Installer already exists, skipping download"
     fi

@@ -204,23 +204,23 @@ class WabbajackInstallerService:
                 update_progress(f"Warning: Failed to create prefix: {e}", 6, 45)
                 update_progress("Continuing anyway...", 6, 45)
 
-            # Step 7: Install WebView2
-            update_progress("Installing WebView2 runtime...", 7, 60)
+            # Step 7: Ensure Win10 registry before WebView2 install
+            update_progress("Applying Windows 10 registry settings...", 7, 55)
+            try:
+                self.handler.apply_win10_registry(app_id, proton_path=proton_path)
+                update_progress("Windows 10 registry settings applied", 7, 55)
+            except Exception as e:
+                update_progress(f"Warning: Failed to apply Windows 10 registry settings: {e}", 7, 55)
+                update_progress("Continuing anyway...", 7, 55)
+
+            # Step 8: Install WebView2
+            update_progress("Installing WebView2 runtime...", 8, 60)
             try:
                 self.handler.install_webview2(app_id, install_folder, proton_path=proton_path)
-                update_progress("WebView2 installed successfully", 7, 60)
+                update_progress("WebView2 installed successfully", 8, 60)
             except Exception as e:
-                update_progress(f"WARNING: WebView2 installation may have failed: {e}", 7, 60)
-                update_progress("This may prevent Nexus login in Wabbajack. You can manually install WebView2 later.", 7, 60)
-
-            # Step 8: Apply Win7 registry
-            update_progress("Applying Windows 7 registry settings...", 8, 75)
-            try:
-                self.handler.apply_win7_registry(app_id, proton_path=proton_path)
-                update_progress("Registry settings applied", 8, 75)
-            except Exception as e:
-                update_progress(f"Warning: Failed to apply registry settings: {e}", 8, 75)
-                update_progress("Continuing anyway...", 8, 75)
+                update_progress(f"WARNING: WebView2 installation may have failed: {e}", 8, 60)
+                update_progress("This may prevent Nexus login in Wabbajack. You can manually install WebView2 later.", 8, 60)
 
             # Step 9: GOG game detection (optional)
             if enable_gog:
@@ -277,4 +277,3 @@ class WabbajackInstallerService:
             if log_callback:
                 log_callback(f"ERROR: {error_msg}")
             return False, None, None, None, None, error_msg
-

@@ -4,7 +4,7 @@ Wabbajack Installer Handler
 Automated Wabbajack.exe installation and configuration via Proton.
 
 Provides: Wabbajack.exe download, Steam shortcuts.vdf handling,
-WebView2 install, Win7 registry for compatibility, optional Heroic GOG detection.
+WebView2 install, Windows version registry overrides, optional Heroic GOG detection.
 """
 
 import json
@@ -29,20 +29,24 @@ class WabbajackInstallerHandler:
 
     # Download URLs
     WABBAJACK_URL = "https://github.com/wabbajack-tools/wabbajack/releases/latest/download/Wabbajack.exe"
-    WEBVIEW2_URL = "https://files.omnigaming.org/MicrosoftEdgeWebView2RuntimeInstallerX64-WabbajackProton.exe"
+    WEBVIEW2_URLS = (
+        "https://files.omnigaming.org/MicrosoftEdgeWebView2RuntimeInstallerX64-WabbajackProton.exe",
+        "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+        "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/6d376ab4-4a07-4679-8918-e0dc3c0735c8/MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+    )
 
-    # Minimal Win7 registry settings for Wabbajack compatibility
-    WIN7_REGISTRY = """REGEDIT4
+    # Minimal Win10 registry settings for WebView2 compatibility
+    WIN10_REGISTRY = """REGEDIT4
 
 [HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion]
-"ProductName"="Microsoft Windows 7"
-"CSDVersion"="Service Pack 1"
-"CurrentBuild"="7601"
-"CurrentBuildNumber"="7601"
-"CurrentVersion"="6.1"
+"ProductName"="Microsoft Windows 10"
+"CSDVersion"=""
+"CurrentBuild"="19045"
+"CurrentBuildNumber"="19045"
+"CurrentVersion"="10.0"
 
 [HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Windows]
-"CSDVersion"=dword:00000100
+"CSDVersion"=dword:00000000
 
 [HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\Wabbajack.exe\\X11 Driver]
 "Decorated"="N"
@@ -213,7 +217,7 @@ class WabbajackInstallerHandler:
                 headers={'User-Agent': 'Jackify-WabbajackInstaller'}
             )
 
-            with urllib.request.urlopen(request) as response:
+            with urllib.request.urlopen(request, timeout=60) as response:
                 with open(dest, 'wb') as f:
                     shutil.copyfileobj(response, f)
 
@@ -221,6 +225,55 @@ class WabbajackInstallerHandler:
 
         except Exception as e:
             raise RuntimeError(f"Failed to download {description}: {e}")
+
+    def _is_valid_windows_executable(self, file_path: Path) -> bool:
+        """
+        Basic validation for downloaded Windows installer files.
+
+        Checks for:
+        - minimum plausible size (>100 KB)
+        - PE header signature ("MZ")
+        """
+        if not file_path.exists() or file_path.stat().st_size < 100 * 1024:
+            return False
+
+        try:
+            with open(file_path, 'rb') as f:
+                return f.read(2) == b'MZ'
+        except Exception:
+            return False
+
+    def download_webview2_installer(self, dest: Path) -> None:
+        """
+        Download WebView2 installer using fallback URLs.
+
+        Raises:
+            RuntimeError: If all download attempts fail or downloaded file is invalid
+        """
+        errors = []
+
+        for url in self.WEBVIEW2_URLS:
+            try:
+                self.download_file(url, dest, "WebView2 installer")
+                if self._is_valid_windows_executable(dest):
+                    self.logger.info(f"Downloaded valid WebView2 installer from {url}")
+                    return
+
+                errors.append(f"{url} -> downloaded file is not a valid Windows executable")
+                self.logger.warning(f"Invalid WebView2 installer downloaded from {url}, trying next source...")
+                try:
+                    dest.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+            except RuntimeError as e:
+                errors.append(f"{url} -> {e}")
+                self.logger.warning(f"Failed to download WebView2 installer from {url}: {e}")
+
+        raise RuntimeError(
+            "Failed to download a valid WebView2 installer from all sources.\n"
+            + "\n".join(errors)
+        )
 
     def download_wabbajack(self, install_folder: Path) -> Path:
         """
@@ -483,8 +536,8 @@ class WabbajackInstallerHandler:
         """
         webview_installer = install_folder / "webview2_installer.exe"
 
-        # Download installer
-        self.download_file(self.WEBVIEW2_URL, webview_installer, "WebView2 installer")
+        # Download installer with fallback URLs
+        self.download_webview2_installer(webview_installer)
 
         try:
             # Run installer with silent flags
@@ -515,9 +568,9 @@ class WabbajackInstallerHandler:
                 except Exception as e:
                     self.logger.warning(f"Failed to cleanup WebView2 installer: {e}")
 
-    def apply_win7_registry(self, app_id: int, proton_path: Optional[Path] = None) -> None:
+    def apply_win10_registry(self, app_id: int, proton_path: Optional[Path] = None) -> None:
         """
-        Apply Windows 7 registry settings.
+        Apply Windows 10 registry settings.
 
         Args:
             app_id: Steam AppID
@@ -526,7 +579,7 @@ class WabbajackInstallerHandler:
         Raises:
             RuntimeError: If registry application fails
         """
-        self.apply_registry(app_id, self.WIN7_REGISTRY, proton_path=proton_path)
+        self.apply_registry(app_id, self.WIN10_REGISTRY, proton_path=proton_path)
 
     def detect_heroic_gog_games(self) -> List[Dict]:
         """
