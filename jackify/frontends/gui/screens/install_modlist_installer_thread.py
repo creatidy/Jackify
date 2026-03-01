@@ -6,12 +6,14 @@ Signals are defined at class level (required for Qt signal/slot).
 import os
 import re
 import threading
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QThread, Signal
 import logging
 
 from jackify.backend.utils.engine_error_parser import parse_engine_error_line, error_from_exit_code
+from jackify.backend.utils.wabbajack_inline_repair import repair_local_wabbajack_if_needed
 from jackify.shared.errors import JackifyError
 
 
@@ -82,6 +84,14 @@ class InstallerThread(QThread):
                 self.installation_finished.emit(False, error_msg)
                 return
             logger.debug(f"DEBUG: Using engine at: {engine_path}")
+            if self.install_mode == 'file' and isinstance(self.modlist, str) and self.modlist.endswith('.wabbajack') and os.path.isfile(self.modlist):
+                repaired = repair_local_wabbajack_if_needed(
+                    Path(self.modlist),
+                    logger=logger,
+                    emit_fn=lambda msg: self.output_received.emit(msg + "\n"),
+                )
+                if repaired != Path(self.modlist):
+                    self.modlist = str(repaired)
             if self.install_mode == 'file':
                 cmd = [engine_path, "install", "--show-file-progress", "-w", self.modlist, "-o", self.install_dir, "-d", self.downloads_dir]
             else:

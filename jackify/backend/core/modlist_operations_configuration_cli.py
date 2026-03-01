@@ -14,6 +14,7 @@ from ..handlers.ui_colors import (
     COLOR_SUCCESS,
     COLOR_WARNING,
 )
+from ..utils.wabbajack_inline_repair import repair_local_wabbajack_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,14 @@ class ModlistOperationsConfigurationCLIMixin:
             cmd = [engine_path, 'install', '--show-file-progress']
             modlist_value = self.context.get('modlist_value')
             if modlist_value and modlist_value.endswith('.wabbajack') and os.path.isfile(modlist_value):
+                repaired = repair_local_wabbajack_if_needed(
+                    Path(modlist_value),
+                    logger=self.logger,
+                    emit_fn=lambda msg: print(msg),
+                )
+                if repaired != Path(modlist_value):
+                    modlist_value = str(repaired)
+                    self.context['modlist_value'] = modlist_value
                 cmd += ['-w', modlist_value]
             elif modlist_value:
                 cmd += ['-m', modlist_value]
